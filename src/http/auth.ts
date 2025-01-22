@@ -1,16 +1,54 @@
-import cookie from '@elysiajs/cookie'
+import { Elysia, t, type InferContext, type Static } from 'elysia'
 import jwt from '@elysiajs/jwt'
-import Elysia, { t } from 'elysia'
+import cookie from '@elysiajs/cookie'
+
 import { env } from '../env'
+
+const jwtPayload = t.Object({
+  sub: t.String(),
+  restauranteId: t.Optional(t.String()),
+})
 
 export const auth = new Elysia()
   .use(
     jwt({
-      secret: env.JWT_SECRET_KET,
-      schema: t.Object({
-        sub: t.String(),
-        restaurantId: t.Optional(t.String()),
-      }),
-    }),
+      secret: env.JWT_SECRET_KEY,
+      schema: jwtPayload,
+    })
   )
   .use(cookie())
+  .derive(({ jwt, setCookie, removeCookie, cookie }) => {
+    return {
+      signUser: async (payload: Static<typeof jwtPayload>) => {
+        const token = await jwt.sign(payload)
+
+        setCookie('auth', token, {
+          httpOnly: true,
+          maxAge: 60 * 60 * 24 * 7, // 7 days
+          path: '/',
+        })
+      },
+
+      signOut: () => {
+        removeCookie('auth')
+      },
+
+      getCurrentUser: async () => {
+        if (!cookie.auth) {
+          throw new Error('Unathorized')
+        }
+        const payload = await jwt.verify(cookie.auth)
+
+        if (!payload) {
+          throw new Error('Unauthorized')
+        }
+
+        return {
+          userId: payload.sub,
+          restauranteId: payload.restauranteId,
+        }
+      },
+    }
+  })
+
+export type AuthContext = InferContext<typeof auth>
